@@ -1,11 +1,12 @@
 package INF1009_P3_02;
 
-import INF1009_P3_02.Collision.CollisionManager;
-import INF1009_P3_02.Entity.EntityManager;
-import INF1009_P3_02.InputOutput.InputOutputManager;
-import INF1009_P3_02.Movement.MovementManager;
-import INF1009_P3_02.Observer.GameEventManager;
-import INF1009_P3_02.Scene.SceneManager;
+import INF1009_P3_02.Engine.collision.CollisionManager;
+import INF1009_P3_02.Engine.entity.EntityManager;
+import INF1009_P3_02.Engine.io.InputOutputManager;
+import INF1009_P3_02.Engine.movement.MovementManager;
+import INF1009_P3_02.Engine.observer.GameEventManager;
+import INF1009_P3_02.Game.scene.SceneManager;
+
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
 
