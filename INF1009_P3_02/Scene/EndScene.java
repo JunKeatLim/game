@@ -1,5 +1,6 @@
 package INF1009_P3_02.Scene;
 
+import INF1009_P3_02.BackgroundChoice;
 import com.badlogic.gdx.scenes.scene2d.ui.Label;
 import com.badlogic.gdx.scenes.scene2d.ui.Table;
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
@@ -16,6 +17,7 @@ public class EndScene extends Scene {
     private Table saveDialog;
     private boolean HandleSavedScore;
     private boolean scoreSaved;
+    private boolean newHighScoreSaved;
 
     public EndScene(SceneManager sceneManager, int collisionCount) {
         this.sceneManager = sceneManager;
@@ -90,6 +92,7 @@ public class EndScene extends Scene {
 
     private void showSavePrompt() {
         saveDialog.clear();
+        playUiWhoosh();
 
         Label prompt = new Label("Save your score?", skin);
         prompt.setFontScale(2f);
@@ -120,6 +123,7 @@ public class EndScene extends Scene {
 
     private void showNameInput() {
         saveDialog.clear();
+        playUiWhoosh();
 
         Label nameLabel = new Label("Enter your name:", skin);
         nameLabel.setFontScale(1.8f);
@@ -144,10 +148,13 @@ public class EndScene extends Scene {
             if (scoreSaved) return true;
 
             String name = nameField.getText();
+            String mode = resolveCurrentMode();
+            int previousBest = sceneManager.getLeaderboardManager().getBestScoreForPlayerMode(name, mode);
             scoreSaved = true;
-            sceneManager.getLeaderboardManager().addEntry(name, collisionCount);
+            sceneManager.getLeaderboardManager().addEntry(name, collisionCount, mode);
+            newHighScoreSaved = previousBest == Integer.MIN_VALUE || collisionCount > previousBest;
             System.out.println("Saved score to leaderboard for: " + name);
-            closeSavePopup();
+            showSaveResultPopup();
             return true;
         });
 
@@ -160,6 +167,7 @@ public class EndScene extends Scene {
 
     private void closeSavePopup() {
         HandleSavedScore = true;
+        playUiWhoosh();
         if (saveOverlay != null) {
             saveOverlay.remove();
             saveOverlay = null;
@@ -167,6 +175,59 @@ public class EndScene extends Scene {
         }
         if (root != null) {
             root.setVisible(true);
+        }
+    }
+
+    private void showSaveResultPopup() {
+        saveDialog.clear();
+        playUiWhoosh();
+
+        String titleText = newHighScoreSaved ? "NEW HIGH SCORE!" : "Score Saved!";
+        Label title = new Label(titleText, skin);
+        title.setFontScale(2.0f);
+        title.setAlignment(Align.center);
+        if (newHighScoreSaved) {
+            title.setColor(1f, 0.9f, 0.4f, 1f);
+        }
+
+        Label detail = new Label("Your score: " + collisionCount, skin);
+        detail.setFontScale(1.5f);
+        detail.setAlignment(Align.center);
+
+        TextButton okButton = new TextButton("OK", skin);
+        okButton.getLabel().setFontScale(1.5f);
+
+        saveDialog.add(title).pad(12).colspan(1).row();
+        saveDialog.add(detail).pad(10).row();
+        saveDialog.add(okButton).width(220).height(70).pad(10).row();
+
+        okButton.addListener(e -> {
+            if (!okButton.isPressed()) return false;
+            closeSavePopup();
+            return true;
+        });
+    }
+
+    private String resolveCurrentMode() {
+        if (sceneManager.getCurrentConfig() == null || sceneManager.getCurrentConfig().background == null) {
+            return "ALL";
+        }
+        BackgroundChoice background = sceneManager.getCurrentConfig().background;
+        switch (background) {
+            case SCHOOL_BASKETBALL:
+                return "EASY";
+            case SCHOOL_CANTEEN:
+                return "MEDIUM";
+            case SCHOOL_PARK:
+                return "HARD";
+            default:
+                return "ALL";
+        }
+    }
+
+    private void playUiWhoosh() {
+        if (sceneManager.getInputOutputManager() != null) {
+            sceneManager.getInputOutputManager().playUiWhoosh();
         }
     }
 }

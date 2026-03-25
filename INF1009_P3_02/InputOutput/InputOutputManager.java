@@ -107,6 +107,22 @@ public class InputOutputManager {
         speaker.playGameEndSound();
     }
 
+    public void playCountdownTick() {
+        speaker.playCountdownTick();
+    }
+
+    public void playCountdownRecycle() {
+        speaker.playCountdownRecycle();
+    }
+
+    public void playCountdownNumber(int number) {
+        speaker.playCountdownNumber(number);
+    }
+
+    public void playUiWhoosh() {
+        speaker.playUiWhoosh();
+    }
+
     public Speaker getSpeaker() {
         return speaker;
     }

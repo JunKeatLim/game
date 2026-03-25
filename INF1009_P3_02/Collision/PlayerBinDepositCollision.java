@@ -2,21 +2,25 @@ package INF1009_P3_02.Collision;
 
 import INF1009_P3_02.Entity.*;
 import INF1009_P3_02.InputOutput.Speaker;
+import INF1009_P3_02.Observer.GameEventManager;
+import INF1009_P3_02.Observer.StateChangeReason;
 
 public class PlayerBinDepositCollision implements CollisionHandler {
     private final EntityManager entityManager;
+    private final GameEventManager eventManager;
 
-    public PlayerBinDepositCollision(EntityManager entityManager) {
+    public PlayerBinDepositCollision(EntityManager entityManager, GameEventManager eventManager) {
         this.entityManager = entityManager;
+        this.eventManager = eventManager;
     }
 
     @Override
     public void handle(Entity a, Entity b, CollisionContext ctx, Speaker speaker) {
         if (!(a instanceof Player)) return;
-        if (!(b instanceof Obstacle)) return;
+        if (!(b instanceof Bin)) return;
 
         Player player = (Player) a;
-        Obstacle bin = (Obstacle) b;
+        Bin bin = (Bin) b;
 
         if (!player.getBounds().overlaps(bin.getBounds())) return;
 
@@ -29,57 +33,78 @@ public class PlayerBinDepositCollision implements CollisionHandler {
         // If not carrying anything, depositing should do nothing
         if (carry == CarryState.NONE || carriedType == null) return;
 
-        ObstacleType binType = bin.getType();
+        BinType binType = bin.getType();
 
         // Determine score based on trash type and bin type
         int points = calculateScore(carriedType, binType);
 
         ctx.addScore(points);
-        if (points < 0) {
+
+        // Determine if this is a correct deposit (exact bin match) vs wrong placement
+        boolean isCorrectBin = isCorrectBin(carriedType, binType);
+        if (!isCorrectBin) {
             ctx.wrongBin = true;
         }
-
-        // Respawn ONLY after deposit attempt
-        entityManager.respawnTrash(carriedType);
 
         // Clear player's carried state
         player.setCarryState(CarryState.NONE);
         player.clearCarriedTrash();
+
+        // Notify observers: carry state changed from carrying → NONE (deposit)
+        if (eventManager != null) {
+            StateChangeReason reason = isCorrectBin
+                ? StateChangeReason.DEPOSITED_CORRECT
+                : StateChangeReason.DEPOSITED_WRONG;
+            eventManager.notifyCarryStateChanged(CarryState.NONE, carriedType, reason, points);
+        }
+
+        // Respawn ONLY after deposit attempt
+        entityManager.respawnTrash(carriedType);
+    }
+
+    /**
+     * Check if the trash was placed in its correct matching bin.
+     */
+    private boolean isCorrectBin(TrashType trashType, BinType binType) {
+        switch (trashType) {
+            case PAPER:      return binType == BinType.PAPER;
+            case PLASTIC:    return binType == BinType.PLASTIC;
+            case ELECTRONIC: return binType == BinType.ELECTRONIC;
+            case TRASHBAG:   return binType == BinType.TRASH;
+        }
+        return false;
     }
 
     /**
      * Scoring rules:
      *   Correct matching bin (paper→paper, plastic→plastic, electronic→electronic, trashbag→trash): +3
-     *   Wrong recyclable bin (e.g. paper→plastic, paper→electronic): +1
-     *   Recyclable into trash bin: -1
-     *   Trashbag into any recyclable bin: -1
+     *   Any wrong bin: -1
      */
-    private int calculateScore(TrashType trashType, ObstacleType binType) {
+    private int calculateScore(TrashType trashType, BinType binType) {
         switch (trashType) {
             case PAPER:
-                if (binType == ObstacleType.PAPER)      return 3;   // correct bin
-                if (binType == ObstacleType.PLASTIC)     return 1;   // wrong recyclable bin
-                if (binType == ObstacleType.ELECTRONIC)  return 1;   // wrong recyclable bin
-                if (binType == ObstacleType.TRASH)       return -1;  // recyclable into trash bin
+                if (binType == BinType.PAPER)      return 3;
+                if (binType == BinType.PLASTIC)     return -1;
+                if (binType == BinType.ELECTRONIC)  return -1;
+                if (binType == BinType.TRASH)       return -1;
                 break;
 
             case PLASTIC:
-                if (binType == ObstacleType.PLASTIC)     return 3;
-                if (binType == ObstacleType.PAPER)       return 1;
-                if (binType == ObstacleType.ELECTRONIC)  return 1;
-                if (binType == ObstacleType.TRASH)       return -1;
+                if (binType == BinType.PLASTIC)     return 3;
+                if (binType == BinType.PAPER)       return -1;
+                if (binType == BinType.ELECTRONIC)  return -1;
+                if (binType == BinType.TRASH)       return -1;
                 break;
 
             case ELECTRONIC:
-                if (binType == ObstacleType.ELECTRONIC)  return 3;
-                if (binType == ObstacleType.PAPER)       return 1;
-                if (binType == ObstacleType.PLASTIC)     return 1;
-                if (binType == ObstacleType.TRASH)       return -1;
+                if (binType == BinType.ELECTRONIC)  return 3;
+                if (binType == BinType.PAPER)       return -1;
+                if (binType == BinType.PLASTIC)     return -1;
+                if (binType == BinType.TRASH)       return -1;
                 break;
 
             case TRASHBAG:
-                if (binType == ObstacleType.TRASH)       return 3;   // correct bin
-                // trashbag into any recyclable bin
+                if (binType == BinType.TRASH)       return 3;
                 return -1;
         }
 

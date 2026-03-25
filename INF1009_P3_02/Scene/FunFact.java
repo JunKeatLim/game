@@ -11,7 +11,7 @@ import com.badlogic.gdx.utils.Align;
 
 import java.util.Random;
 
-public final class FunFact {
+public class FunFact {
 
     private static final float FADE_IN_SECONDS = 0.25f;
     private static final float POPUP_WIDTH = 360f;
@@ -20,14 +20,22 @@ public final class FunFact {
     private static final float BUTTON_HEIGHT = 56f;
 
     private static final String[] WRONG_BIN_FACTS = {
-        "Fun fact: Recycling one aluminum can saves enough energy to power a TV for about 3 hours.",
-        "Fun fact: Paper can be recycled around 5 to 7 times before fibers become too short.",
-        "Fun fact: Many plastics are downcycled, so sorting correctly helps preserve material quality.",
-        "Fun fact: E-waste has valuable metals like gold and copper that can be recovered.",
-        "Fun fact: Correct bin sorting keeps recyclable materials from being contaminated."
+        "Singapore generates over 7 million tonnes of waste every year. That is roughly about 1,000 kg per person annually (about the weight of a small car).",
+        "All non-recyclable waste ends up at Semakau Landfill",
+        "If recyclables are dirty or mixed with food, they often cannot be processed.",
+        "Public housing (HDB flats) has recycling chutes or bins on every floor. It's super convenient! ",
+        "The 3Rs stand for Reduce, Reuse, and Recycle.",
+        "A plastic bottle can take hundreds of years to break down in the environment.",
+        "Recycling one aluminium can saves enough energy to power a TV for a few hours.",
+        "Paper can usually be recycled multiple times before the fibers become too short.",
+        "Rinsing containers before recycling helps prevent entire batches from getting contaminated.",
+        "E-waste such as old phones and chargers should not be thrown into regular trash bins.",
+        "In Singapore, clean paper, plastic, metal, and glass recyclables can go into the blue recycling bins.",
+        "National Environment Agency (NEA) runs campaigns and programmes to build recycling habits across Singapore.",
+        "Singapore's Zero Waste Masterplan aims to reduce waste sent to Semakau Landfill and raise recycling rates.",
+        "When items are sorted correctly, recycling facilities can process them faster and better.",
+        "Small daily actions, like sorting waste correctly, make a big long-term environmental impact."
     };
-
-    private static final FunFact INSTANCE = new FunFact();
 
     private final Random random = new Random();
     private final Color shadowColor = new Color(0.02f, 0.08f, 0.12f, 0.58f);
@@ -53,11 +61,7 @@ public final class FunFact {
     private Texture whitePixel;
     private Texture playerHeroTexture;
 
-    private FunFact() {
-    }
-
-    public static FunFact getInstance() {
-        return INSTANCE;
+    public FunFact() {
     }
 
     public void showWrongBinFact() {

@@ -52,9 +52,6 @@ public class CustomizationScene extends Scene {
         Label bgLabel = new Label("Select Difficulty", skin);
         bgLabel.setFontScale(2.0f);
 
-        Label timeLabel = new Label("Select Simulation Time", skin);
-        timeLabel.setFontScale(2.0f);
-
         // Select boxes
         SelectBox<BackgroundChoice> bgSelect = createBigSelectBox();
         bgSelect.setItems(
@@ -62,10 +59,6 @@ public class CustomizationScene extends Scene {
             BackgroundChoice.SCHOOL_CANTEEN,
             BackgroundChoice.SCHOOL_PARK
         );
-
-        SelectBox<String> timeSelect = createBigSelectBox();
-        timeSelect.setItems("5sec", "1 min", "3 min", "5 min");
-        timeSelect.setSelected("5sec");
 
         // Buttons
         TextButton begin = new TextButton("Begin", skin);
@@ -80,10 +73,6 @@ public class CustomizationScene extends Scene {
         root.add(bgLabel).padTop(10).row();
         root.add(bgSelect).width(650).height(90).pad(12).row();
 
-
-        root.add(timeLabel).padTop(10).row();
-        root.add(timeSelect).width(650).height(90).pad(12).row();
-
         root.add(begin).width(520).height(90).padTop(12).row();
         root.add(back).width(520).height(90).padTop(12).row();
 
@@ -94,12 +83,6 @@ public class CustomizationScene extends Scene {
 
             SimulationConfig cfg = new SimulationConfig();
             cfg.background = bgSelect.getSelected();
-
-            String t = timeSelect.getSelected();
-            if (t.startsWith("5")) cfg.durationSeconds = 5;
-            else if (t.startsWith("1")) cfg.durationSeconds = 60;
-            else if (t.startsWith("3")) cfg.durationSeconds = 180;
-            else cfg.durationSeconds = 300;
 
             // SceneManager owns navigation + stores config
             sceneManager.startSimulation(cfg);

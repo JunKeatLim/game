@@ -165,6 +165,49 @@ public class Speaker {
         }
     }
 
+    public void playCountdownTick() {
+        if (!audioEnabled) return;
+        if (pickupSound != null) {
+            long id = pickupSound.play(Math.min(1.0f, masterVolume * 0.9f));
+            pickupSound.setPitch(id, 1.25f);
+        } else if (correctSound != null) {
+            long id = correctSound.play(Math.min(1.0f, masterVolume * 0.8f));
+            correctSound.setPitch(id, 1.2f);
+        }
+    }
+
+    public void playCountdownRecycle() {
+        if (!audioEnabled) return;
+        if (correctSound != null) {
+            long id = correctSound.play(Math.min(1.0f, masterVolume));
+            correctSound.setPitch(id, 1.05f);
+        } else if (gameEndSound != null) {
+            gameEndSound.play(Math.min(1.0f, masterVolume * 0.8f));
+        }
+    }
+
+    public void playCountdownNumber(int number) {
+        if (!audioEnabled) return;
+        if (pickupSound != null) {
+            float pitch = 1.05f + (number * 0.08f);
+            long id = pickupSound.play(Math.min(1.0f, masterVolume * 0.95f));
+            pickupSound.setPitch(id, pitch);
+            return;
+        }
+        playCountdownTick();
+    }
+
+    public void playUiWhoosh() {
+        if (!audioEnabled) return;
+        if (collisionSound != null) {
+            long id = collisionSound.play(Math.min(1.0f, masterVolume * 0.18f));
+            collisionSound.setPitch(id, 1.6f);
+        } else if (pickupSound != null) {
+            long id = pickupSound.play(Math.min(1.0f, masterVolume * 0.35f));
+            pickupSound.setPitch(id, 1.7f);
+        }
+    }
+
     public void setVolume(float volume) {
         float newVolume = Math.max(0, Math.min(1, volume));
 

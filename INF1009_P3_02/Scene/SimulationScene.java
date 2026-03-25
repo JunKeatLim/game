@@ -2,12 +2,18 @@ package INF1009_P3_02.Scene;
 
 
 import INF1009_P3_02.BackgroundChoice;
-import INF1009_P3_02.Collision.CollisionContext;
 import INF1009_P3_02.Collision.CollisionManager;
 import INF1009_P3_02.Entity.*;
+import INF1009_P3_02.GameMaster;
 import INF1009_P3_02.InputOutput.InputOutputManager;
 import INF1009_P3_02.Logging.GameEngineLogger;
 import INF1009_P3_02.Movement.MovementManager;
+import INF1009_P3_02.Observer.AudioEventListener;
+import INF1009_P3_02.Observer.IObserver;
+import INF1009_P3_02.Observer.GameEventManager;
+import INF1009_P3_02.Observer.LoggingEventListener;
+import INF1009_P3_02.Observer.MovementEventListener;
+import INF1009_P3_02.Observer.StateChangeReason;
 import INF1009_P3_02.SettingsData;
 import INF1009_P3_02.SimulationConfig;
 import com.badlogic.gdx.Gdx;
@@ -18,6 +24,7 @@ import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
+import com.badlogic.gdx.math.Matrix4;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -27,16 +34,19 @@ import java.util.Map;
 public class SimulationScene extends Scene {
     private static final float PLAYER_COLLISION_SIZE = 40f;
     private static final float PLAYER_DRAW_SIZE = 240f;
-    private static final float TRASH_BOUNDS_SIZE = 40f;
-    private static final float TRASH_DRAW_SIZE = 90f;
     private static final float POPUP_DURATION = 1.2f;
+    private static final float WRONG_BIN_POPUP_DURATION = 0.6f;
     private static final float PICKUP_POPUP_DURATION = 0.7f;
     private static final float DROP_POPUP_DURATION = 1.5f;
     private static final float PLAYER_POPUP_OFFSET_Y = -34f;
     private static final float BIN_RESULT_ICON_SIZE = 96f;
     private static final float MONSTER_WARNING_ICON_SIZE = 400f;
     private static final float PICKUP_POPUP_SCALE = 1.4f;
-    private static final FunFact FUN_FACT_POPUP = FunFact.getInstance();
+    private static final float RESUME_COUNTDOWN_TOTAL = 3f;
+    private static final float RECYCLE_FLASH_SECONDS = 0.8f;
+    private static final float COLLISION_SHAKE_SECONDS = 0.22f;
+    private static final float COLLISION_SHAKE_INTENSITY = 8f;
+    private FunFact funFact;
 
     private final SceneManager sceneManager;
     private final SettingsData settings;
@@ -60,20 +70,17 @@ public class SimulationScene extends Scene {
     private float pauseBtnX, pauseBtnY, pauseBtnW, pauseBtnH;
     private com.badlogic.gdx.InputAdapter pauseInputAdapter;
 
-    // popup text feedback
+    // popup
     private String popupText = null;
     private Texture popupImage = null;
     private float popupTimer = 0f;
+    private float popupDuration = POPUP_DURATION;
     private Color popupColor = Color.WHITE.cpy();
     private boolean popupAbovePlayer = false;
 
-    // Per-icon draw offsets — adjust these to compensate for different PNG crops.
-    // Positive X moves right, positive Y moves up (LibGDX Y-up).
-    private static final float TICK_OFFSET_X  =  0f;
-    private static final float TICK_OFFSET_Y  =  0f;
-    private static final float CROSS_OFFSET_X =  0f;
-    private static final float CROSS_OFFSET_Y =  0f;
-    private static final float ICON_SIZE      = 22f; // shared draw size for both icons
+    private static final float TICK_OFFSET_X = 0f, TICK_OFFSET_Y = 0f;
+    private static final float CROSS_OFFSET_X = 0f, CROSS_OFFSET_Y = 0f;
+    private static final float ICON_SIZE = 22f;
 
     private float heartbeatTimer = 0f;
 
@@ -83,6 +90,7 @@ public class SimulationScene extends Scene {
     private MovementManager movementManager;
     private InputOutputManager inputOutputManager;
     private final GameEngineLogger logger;
+    private GameEventManager eventManager;
 
     // entities
     private Player player;
@@ -99,45 +107,53 @@ public class SimulationScene extends Scene {
 
     private boolean initialized = false;
     private boolean pendingWrongFunFact = false;
+    private boolean resumeCountdownActive = false;
+    private float resumeCountdownTimer = 0f;
+    private boolean recycleFlashActive = false;
+    private float recycleFlashTimer = 0f;
+    private int lastCountdownNumberShown = -1;
+    private float collisionShakeTimer = 0f;
+    private float collisionShakeOffsetX = 0f;
+    private float collisionShakeOffsetY = 0f;
 
-    private CarryState previousCarryState = CarryState.NONE;
-
-public SimulationScene(SceneManager sceneManager, SettingsData settings, SimulationConfig config, GameEngineLogger logger) {
+    public SimulationScene(SceneManager sceneManager, SettingsData settings, SimulationConfig config, GameEngineLogger logger) {
         this.sceneManager = sceneManager;
         this.settings = settings;
         this.config = config;
         this.logger = logger;
+        this.funFact = new FunFact();
     }
 
-    public SimulationConfig getConfig() {
-        return config;
+    public SimulationConfig getConfig() { return config; }
+
+    public void startResumeCountdown(float seconds) {
+        float safeSeconds = seconds <= 0f ? RESUME_COUNTDOWN_TOTAL : seconds;
+        resumeCountdownActive = true;
+        resumeCountdownTimer = safeSeconds;
+        recycleFlashActive = false;
+        recycleFlashTimer = 0f;
+        lastCountdownNumberShown = -1;
     }
 
-    @Override
-    protected void buildUI() {
-        // No Scene2D UI for this scene.
-    }
+    @Override protected void buildUI() {}
 
     @Override
     public void show() {
         if (initialized) {
             simulationEnded = false;
             Gdx.input.setInputProcessor(pauseInputAdapter);
-            if (inputOutputManager != null) {
-                inputOutputManager.setControlScheme(settings.controlScheme);
-            }
+            if (inputOutputManager != null) inputOutputManager.setControlScheme(settings.controlScheme);
             return;
         }
         initialized = true;
 
-        // Set up input processor for pause button
+        GameMaster gameMaster = sceneManager.getGameMaster();
+        eventManager = gameMaster.getEventManager();
+
         pauseInputAdapter = new com.badlogic.gdx.InputAdapter() {
-            @Override
-            public boolean touchDown(int screenX, int screenY, int pointer, int button) {
-                float y = Gdx.graphics.getHeight() - screenY; // invert y
-                if (FUN_FACT_POPUP.isVisible()) {
-                    return FUN_FACT_POPUP.handleTouch(screenX, y);
-                }
+            @Override public boolean touchDown(int screenX, int screenY, int pointer, int button) {
+                float y = Gdx.graphics.getHeight() - screenY;
+                if (funFact.isVisible()) return funFact.handleTouch(screenX, y);
                 if (screenX >= pauseBtnX && screenX <= pauseBtnX + pauseBtnW &&
                     y >= pauseBtnY && y <= pauseBtnY + pauseBtnH) {
                     sceneManager.goToPauseScene();
@@ -145,27 +161,18 @@ public SimulationScene(SceneManager sceneManager, SettingsData settings, Simulat
                 }
                 return false;
             }
-
-            @Override
-            public boolean keyDown(int keycode) {
-                if (FUN_FACT_POPUP.isVisible()) {
+            @Override public boolean keyDown(int keycode) {
+                if (funFact.isVisible()) {
                     if (keycode == com.badlogic.gdx.Input.Keys.ENTER
                         || keycode == com.badlogic.gdx.Input.Keys.SPACE
-                        || keycode == com.badlogic.gdx.Input.Keys.ESCAPE) {
-                        FUN_FACT_POPUP.dismiss();
-                    }
+                        || keycode == com.badlogic.gdx.Input.Keys.ESCAPE) funFact.dismiss();
                     return true;
                 }
-                if (keycode == com.badlogic.gdx.Input.Keys.ESCAPE) {
-                    sceneManager.goToPauseScene();
-                    return true;
-                }
+                if (keycode == com.badlogic.gdx.Input.Keys.ESCAPE) { sceneManager.goToPauseScene(); return true; }
                 return false;
             }
         };
         Gdx.input.setInputProcessor(pauseInputAdapter);
-
-        logger.info("=== Simulation Started === Duration: " + config.durationSeconds + "s | Background: " + config.background);
 
         batch = new SpriteBatch();
         shapeRenderer = new ShapeRenderer();
@@ -187,83 +194,165 @@ public SimulationScene(SceneManager sceneManager, SettingsData settings, Simulat
 
         WORLD_W = Gdx.graphics.getWidth();
         WORLD_H = Gdx.graphics.getHeight();
-
-        pauseBtnW = 36f;
-        pauseBtnH = 36f;
+        pauseBtnW = 48f; pauseBtnH = 54f;
         pauseBtnX = WORLD_W - pauseBtnW - 18f;
         pauseBtnY = WORLD_H - pauseBtnH - 16f;
-
         timeLeft = config.durationSeconds;
 
-        // Set up EntityManager with factories
         entityManager = new EntityManager();
         entityManager.setLogger(logger);
         entityManager.setWorldDimensions(WORLD_W, WORLD_H);
-        entityManager.setTrashFactory(new TrashFactory(
-            WORLD_W,
-            WORLD_H,
-            TRASH_BOUNDS_SIZE,
-            TRASH_BOUNDS_SIZE,
-            TRASH_DRAW_SIZE
-        ));
-        entityManager.setObstacleFactory(new ObstacleFactory(WORLD_W, WORLD_H, 80f, 25f, 120f));
-
-        // Create Player using PlayerFactory
-        PlayerFactory playerFactory = new PlayerFactory(WORLD_W, WORLD_H);
-        player = playerFactory.createPlayer(400, 300, 300, PLAYER_COLLISION_SIZE, PLAYER_DRAW_SIZE);
+        EntityFactory entityFactory = new EntityFactory(WORLD_W, WORLD_H);
+        entityManager.setEntityFactory(entityFactory);
+        player = entityFactory.createPlayer(400, 300, 300, PLAYER_COLLISION_SIZE, PLAYER_DRAW_SIZE);
 
         int botCount = Math.max(0, config.getBotCount());
-        float[][] botStartPositions = {
-            {500f, 300f},
-            {700f, 430f}
-        };
+        float[][] botStartPositions = { {500f, 300f}, {700f, 430f} };
         bots.clear();
         for (int i = 0; i < botCount; i++) {
             float[] pos = botStartPositions[Math.min(i, botStartPositions.length - 1)];
             bots.add(new Bot(pos[0], pos[1], 150, 200, 150, WORLD_W, WORLD_H));
         }
 
-        // Add player and bots first so obstacle/trash spawning can check overlap
         entityManager.addEntity(player);
-        for (Bot bot : bots) {
-            entityManager.addEntity(bot);
-        }
+        for (Bot bot : bots) entityManager.addEntity(bot);
 
-        // Spawn obstacles via factory (through EntityManager)
-        ObstacleType[] obstacleTypes = {
-            ObstacleType.TRASH,
-            ObstacleType.ELECTRONIC,
-            ObstacleType.PAPER,
-            ObstacleType.PLASTIC
-        };
-        entityManager.spawnObstacles(obstacleTypes);
-
-        // Spawn initial trash
-        entityManager.spawnInitialTrash();
+        BinType[] obstacleTypes = { BinType.TRASH, BinType.ELECTRONIC, BinType.PAPER, BinType.PLASTIC };
+        entityManager.spawnBinBottomRow(obstacleTypes);
+        entityManager.spawnInitialTrash(config.getInitialTrashPerType());
 
         movementManager = new MovementManager(entityManager);
 
         inputOutputManager = new InputOutputManager(settings, movementManager);
         inputOutputManager.setControlScheme(settings.controlScheme);
-        inputOutputManager.setEscapeListener(() -> {
-            sceneManager.goToPauseScene();
-        });
+        inputOutputManager.setEscapeListener(() -> sceneManager.goToPauseScene());
 
-        // CollisionManager
-        collisionManager = new CollisionManager(inputOutputManager.getSpeaker(), entityManager, sceneManager.getLogger());
+        collisionManager = new CollisionManager(inputOutputManager.getSpeaker(), entityManager, eventManager);
+
+        // ── Register all Observers ───────────────────────────────────────
+        eventManager.clearListeners();
+
+        // Observer 1: Audio — plays sounds on carry state changes and player collisions
+        eventManager.addListener(new AudioEventListener(inputOutputManager.getSpeaker()));
+
+        // Observer 2: Logging — logs carry state changes and player collisions
+        eventManager.addListener(new LoggingEventListener(logger));
+
+        // Observer 3: Movement — syncs player movement on player collisions
+        eventManager.addListener(new MovementEventListener(movementManager));
+
+        // Observer 4: Scene UI — handles popups, score, fun facts on carry state changes
+        eventManager.addListener(new SceneEventListener());
 
         movementManager.syncPlayerMovementFromEntity();
 
-        previousCarryState = player.getCarryState();
+        logger.info("=== Simulation Started === Duration: " + config.durationSeconds + "s | Background: " + config.background);
+    }
+
+    private class SceneEventListener implements IObserver {
+
+        @Override
+        public void onCarryStateChanged(CarryState oldState, CarryState newState,
+                                        TrashType trashType, StateChangeReason reason, int points) {
+            switch (reason) {
+                case PICKUP:
+                    popupText = "Picked up: " + formatTrashType(trashType);
+                    popupImage = null;
+                    popupTimer = PICKUP_POPUP_DURATION;
+                    popupDuration = PICKUP_POPUP_DURATION;
+                    popupColor.set(1f, 0.95f, 0.2f, 1f);
+                    popupAbovePlayer = true;
+                    break;
+                case DEPOSITED_CORRECT:
+                    correctCount++;
+                    score += points;
+                    popupText = null;
+                    popupImage = tickIcon;
+                    popupTimer = POPUP_DURATION;
+                    popupDuration = POPUP_DURATION;
+                    popupAbovePlayer = false;
+                    break;
+                case DEPOSITED_WRONG:
+                    wrongCount++;
+                    score += points;
+                    popupText = null;
+                    popupImage = crossIcon;
+                    popupTimer = WRONG_BIN_POPUP_DURATION;
+                    popupDuration = WRONG_BIN_POPUP_DURATION;
+                    popupAbovePlayer = false;
+                    pendingWrongFunFact = true;
+                    break;
+                case DROPPED:
+                    popupText = null;
+                    popupImage = monsterWarningIcon;
+                    popupTimer = DROP_POPUP_DURATION;
+                    popupDuration = DROP_POPUP_DURATION;
+                    popupColor.set(Color.WHITE);
+                    popupAbovePlayer = false;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        @Override
+        public void onPlayerCollision(StateChangeReason reason) {
+            // Track collision count when player hits a bot
+            if (reason == StateChangeReason.HIT_BOT) {
+                playerBotCollisionCount = collisionManager.getPlayerBotCollisionCount();
+                collisionShakeTimer = COLLISION_SHAKE_SECONDS;
+            }
+        }
     }
 
     @Override
     public void update(float dt) {
-        if (FUN_FACT_POPUP.isVisible()) {
-            FUN_FACT_POPUP.update(dt);
-            if (FUN_FACT_POPUP.isVisible()) {
-                return;
+        if (resumeCountdownActive) {
+            int numberToShow = Math.max(1, (int)Math.ceil(resumeCountdownTimer));
+            if (numberToShow != lastCountdownNumberShown) {
+                lastCountdownNumberShown = numberToShow;
+                if (inputOutputManager != null) {
+                    inputOutputManager.playCountdownNumber(numberToShow);
+                }
             }
+
+            resumeCountdownTimer -= dt;
+            if (resumeCountdownTimer <= 0f) {
+                resumeCountdownTimer = 0f;
+                resumeCountdownActive = false;
+                recycleFlashActive = true;
+                recycleFlashTimer = RECYCLE_FLASH_SECONDS;
+                if (inputOutputManager != null) {
+                    inputOutputManager.playCountdownRecycle();
+                }
+            }
+            return;
+        }
+        if (recycleFlashActive) {
+            recycleFlashTimer -= dt;
+            if (recycleFlashTimer <= 0f) {
+                recycleFlashTimer = 0f;
+                recycleFlashActive = false;
+            }
+            return;
+        }
+
+        if (collisionShakeTimer > 0f) {
+            collisionShakeTimer -= dt;
+            float progress = Math.max(0f, collisionShakeTimer / COLLISION_SHAKE_SECONDS);
+            float strength = COLLISION_SHAKE_INTENSITY * progress;
+            collisionShakeOffsetX = (float)((Math.random() * 2.0 - 1.0) * strength);
+            collisionShakeOffsetY = (float)((Math.random() * 2.0 - 1.0) * strength);
+            if (collisionShakeTimer <= 0f) {
+                collisionShakeTimer = 0f;
+                collisionShakeOffsetX = 0f;
+                collisionShakeOffsetY = 0f;
+            }
+        }
+
+        if (funFact.isVisible()) {
+            funFact.update(dt);
+            if (funFact.isVisible()) return;
         }
 
         timeLeft -= dt;
@@ -271,9 +360,7 @@ public SimulationScene(SceneManager sceneManager, SettingsData settings, Simulat
         heartbeatTimer += dt;
         if (heartbeatTimer >= 10f) {
             heartbeatTimer = 0f;
-            logger.info("Heartbeat — Player position: (" + (int)player.getX() + ", " + (int)player.getY() + ") | Time left: " + (int)timeLeft + "s");
-            logger.info("Total Collisions: " + playerBotCollisionCount);
-            logger.info("Total Score: " + score);        
+            logger.info("Heartbeat — Player pos: (" + (int)player.getX() + "," + (int)player.getY() + ") | Time: " + (int)timeLeft + "s | Score: " + score);
         }
 
         inputOutputManager.setControlScheme(settings.controlScheme);
@@ -284,92 +371,46 @@ public SimulationScene(SceneManager sceneManager, SettingsData settings, Simulat
         for (Bot bot : bots) {
             botOldPositions.put(bot, new float[] { bot.getX(), bot.getY() });
         }
-        TrashType carriedBeforeCollision = player.getCarriedTrashType();
 
         inputOutputManager.update(dt);
         movementManager.update(dt);
         entityManager.updateAll(dt);
 
-        List<Obstacle> obstacles = entityManager.getObstacles();
+        List<Bin> obstacles = entityManager.getBins();
 
-        CollisionContext ctx = collisionManager.resolve(player, bots, obstacles, pOldX, pOldY, botOldPositions, dt);
+        // All player collision responses (sound, logging, movement sync)
+        // are handled by observers automatically via GameEventManager
+        collisionManager.resolve(player, bots, obstacles, pOldX, pOldY, botOldPositions, dt);
 
+        // Trash pickup — notifies observers of carry state change
         handleTrashPickup();
 
-        if (ctx.getScore() > 0) {
-            correctCount++;
-            score++;
-            onCorrect();
-            inputOutputManager.playCorrectSound();
-        }
-
-        if (ctx.wrongBin) {
-            wrongCount++;
-            score--;
-            onWrong();
-            inputOutputManager.playWrongSound();
-        }
-
-        if (ctx.playerBotOverlappingNow && carriedBeforeCollision != null) {
-            onDrop();
-        }
-
         updatePopup(dt);
-
-        CarryState currentCarryState = player.getCarryState();
-        if (previousCarryState == CarryState.NONE && currentCarryState != CarryState.NONE) {
-            inputOutputManager.playPickupSound();
-        }
-        previousCarryState = currentCarryState;
-
-        if (ctx.playerCollidedWithObstacle || ctx.botCollidedWithPlayer) {
-            movementManager.syncPlayerMovementFromEntity();
-        }
-
-        int prevCount = playerBotCollisionCount;
-        playerBotCollisionCount = collisionManager.getPlayerBotCollisionCount();
-
-        if (playerBotCollisionCount > prevCount) {
-            logger.info("Player-Bot collision #" + playerBotCollisionCount + " at Player(" + (int) player.getX() + "," + (int) player.getY() + ")");
-        }
 
         if (timeLeft <= 0f && !simulationEnded) {
             simulationEnded = true;
             logger.info("=== Simulation Ended === Total Collisions: " + playerBotCollisionCount + " Total Score: " + score);
             sceneManager.goToEndScene(score);
-            return;
         }
     }
 
-    private void onPickup(TrashType type) {
-        popupText = "Picked up: " + formatTrashType(type);
-        popupImage = null;
-        popupTimer = PICKUP_POPUP_DURATION;
-        popupColor.set(1f, 0.95f, 0.2f, 1f);
-        popupAbovePlayer = true;
-    }
+    private void handleTrashPickup() {
+        if (player.getCarryState() == CarryState.NONE) {
+            for (Trash t : entityManager.getTrashItems()) {
+                if (player.getBounds().overlaps(t.getBounds())) {
+                    TrashType type = t.getType();
+                    entityManager.removeEntity(t);
 
-    private void onDrop() {
-        popupText = null;
-        popupImage = monsterWarningIcon;
-        popupTimer = DROP_POPUP_DURATION;
-        popupColor.set(Color.WHITE);
-        popupAbovePlayer = false;
-    }
+                    CarryState newState = (type == TrashType.TRASHBAG) ? CarryState.TRASH : CarryState.RECYCLE;
+                    player.setCarriedTrashType(type);
+                    player.setCarryState(newState);
 
-    private void onCorrect() {
-        popupText = null;
-        popupImage = tickIcon;
-        popupTimer = POPUP_DURATION;
-        popupAbovePlayer = false;
-    }
-
-    private void onWrong() {
-        popupText = null;
-        popupImage = crossIcon;
-        popupTimer = POPUP_DURATION;
-        popupAbovePlayer = false;
-        pendingWrongFunFact = true;
+                    // Notify observers: carry state changed NONE → carrying (PICKUP)
+                    eventManager.notifyCarryStateChanged(newState, type, StateChangeReason.PICKUP, 0);
+                    break;
+                }
+            }
+        }
     }
 
     private void updatePopup(float dt) {
@@ -377,12 +418,13 @@ public SimulationScene(SceneManager sceneManager, SettingsData settings, Simulat
             popupTimer -= dt;
             if (popupTimer <= 0f) {
                 popupTimer = 0f;
+                popupDuration = POPUP_DURATION;
                 popupText = null;
                 popupImage = null;
                 popupColor.set(Color.WHITE);
                 popupAbovePlayer = false;
                 if (pendingWrongFunFact) {
-                    FUN_FACT_POPUP.showWrongBinFact();
+                    funFact.showWrongBinFact();
                     pendingWrongFunFact = false;
                 }
             }
@@ -391,47 +433,32 @@ public SimulationScene(SceneManager sceneManager, SettingsData settings, Simulat
 
     private void drawPopup() {
         if (popupTimer <= 0f) return;
-
-        float alpha = popupTimer / POPUP_DURATION;
+        float alpha = popupDuration <= 0f ? 0f : popupTimer / popupDuration;
+        if (popupImage == crossIcon) alpha = 1f;
         if (popupImage != null) {
-            float popupImageSize = popupImage == monsterWarningIcon
-                ? MONSTER_WARNING_ICON_SIZE
-                : BIN_RESULT_ICON_SIZE;
+            float sz = popupImage == monsterWarningIcon ? MONSTER_WARNING_ICON_SIZE : BIN_RESULT_ICON_SIZE;
             batch.begin();
             batch.setColor(1f, 1f, 1f, alpha);
-            batch.draw(
-                popupImage,
-                (WORLD_W - popupImageSize) / 2f,
-                (WORLD_H - popupImageSize) / 2f,
-                popupImageSize,
-                popupImageSize
-            );
+            batch.draw(popupImage, (WORLD_W - sz) / 2f, (WORLD_H - sz) / 2f, sz, sz);
             batch.setColor(Color.WHITE);
             batch.end();
             return;
         }
-
         if (popupText == null) return;
-
         float fontScale = popupAbovePlayer ? PICKUP_POPUP_SCALE : 1f;
         font.getData().setScale(fontScale);
         layout.setText(font, popupText);
-        float popupX;
-        float popupY;
-
+        float px, py;
         if (popupAbovePlayer) {
-            float playerCenterX = player.getX();
-            float playerTopY = player.getY() + PLAYER_DRAW_SIZE / 2f;
-            popupX = playerCenterX - layout.width / 2f;
-            popupY = playerTopY + PLAYER_POPUP_OFFSET_Y;
+            px = player.getX() - layout.width / 2f;
+            py = player.getY() + PLAYER_DRAW_SIZE / 2f + PLAYER_POPUP_OFFSET_Y;
         } else {
-            popupX = (WORLD_W - layout.width) / 2f;
-            popupY = WORLD_H * 0.62f;
+            px = (WORLD_W - layout.width) / 2f;
+            py = WORLD_H * 0.62f;
         }
-
         batch.begin();
         font.setColor(popupColor.r, popupColor.g, popupColor.b, alpha);
-        font.draw(batch, layout, popupX, popupY);
+        font.draw(batch, layout, px, py);
         font.setColor(Color.WHITE);
         batch.end();
         font.getData().setScale(1f);
@@ -439,36 +466,17 @@ public SimulationScene(SceneManager sceneManager, SettingsData settings, Simulat
 
     private String formatTrashType(TrashType type) {
         switch (type) {
-            case PAPER:      return "Paper";
-            case PLASTIC:    return "Plastic";
-            case ELECTRONIC: return "Electronic";
-            case TRASHBAG:   return "Trash Bag";
-            default:         return type.name();
+            case PAPER: return "Paper"; case PLASTIC: return "Plastic";
+            case ELECTRONIC: return "Electronic"; case TRASHBAG: return "Trash Bag";
+            default: return type.name();
         }
     }
 
     private Texture getTrashIcon(TrashType type) {
-    switch (type) {
-        case PAPER:      return paperIcon;
-        case PLASTIC:    return plasticIcon;
-        case ELECTRONIC: return electronicIcon;
-        case TRASHBAG:   return trashbagIcon;
-        default:         return null;
-    }
-}
-
-    private void handleTrashPickup() {
-        if (player.getCarryState() == CarryState.NONE) {
-            for (Trash t : entityManager.getTrashItems()) {
-                if (player.getBounds().overlaps(t.getBounds())) {
-                    TrashType type = t.getType();
-                    entityManager.removeEntity(t);
-                    player.setCarriedTrashType(type);
-                    player.setCarryState(type == TrashType.TRASHBAG ? CarryState.TRASH : CarryState.RECYCLE);
-                    onPickup(type);
-                    break;
-                }
-            }
+        switch (type) {
+            case PAPER: return paperIcon; case PLASTIC: return plasticIcon;
+            case ELECTRONIC: return electronicIcon; case TRASHBAG: return trashbagIcon;
+            default: return null;
         }
     }
 
@@ -476,90 +484,160 @@ public SimulationScene(SceneManager sceneManager, SettingsData settings, Simulat
     public void render() {
         Gdx.gl.glClearColor(0f, 0f, 0f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+        Matrix4 originalTransform = new Matrix4(batch.getTransformMatrix());
+        if (collisionShakeOffsetX != 0f || collisionShakeOffsetY != 0f) {
+            Matrix4 shaken = new Matrix4(originalTransform);
+            shaken.translate(collisionShakeOffsetX, collisionShakeOffsetY, 0f);
+            batch.setTransformMatrix(shaken);
+        }
 
         drawBackground(config.background);
 
         batch.begin();
         player.draw(batch);
-        for (Bot bot : bots) {
-            bot.draw(batch);
-        }
-        for (Obstacle o : entityManager.getObstacles()) {
-            o.draw(batch);
-        }
-        for (Trash t : entityManager.getTrashItems()) {
-            t.draw(batch);
-        }
+        for (Bot bot : bots) bot.draw(batch);
+        for (Bin o : entityManager.getBins()) o.draw(batch);
+        for (Trash t : entityManager.getTrashItems()) t.draw(batch);
         batch.end();
+        batch.setTransformMatrix(originalTransform);
 
         drawPopup();
         drawHUD();
-        FUN_FACT_POPUP.draw(shapeRenderer, batch, font, layout, WORLD_W, WORLD_H);
+        funFact.draw(shapeRenderer, batch, font, layout, WORLD_W, WORLD_H);
+        drawResumeCountdown();
+        drawRecycleFlash();
         renderBrightnessOverlay();
     }
 
-    private void drawBackground(BackgroundChoice bg) {
-        Texture selectedBackground;
-        switch (bg) {
-            case SCHOOL_BASKETBALL: selectedBackground = basketballBackground; break;
-            case SCHOOL_CANTEEN:    selectedBackground = canteenBackground;    break;
-            case SCHOOL_PARK:       selectedBackground = parkBackground;       break;
-            default:                selectedBackground = basketballBackground; break;
+    private void drawResumeCountdown() {
+        if (!resumeCountdownActive) return;
+
+        String countdownText = String.valueOf((int) Math.ceil(resumeCountdownTimer));
+        if ("0".equals(countdownText)) {
+            countdownText = "1";
         }
+
+        // Keep gameplay visible underneath with a soft tinted overlay.
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        shapeRenderer.setProjectionMatrix(batch.getProjectionMatrix());
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(0.05f, 0.07f, 0.10f, 0.34f);
+        shapeRenderer.rect(0f, 0f, WORLD_W, WORLD_H);
+        // second pass gives a subtle frosted effect instead of flat black
+        shapeRenderer.setColor(0.16f, 0.20f, 0.26f, 0.12f);
+        shapeRenderer.rect(0f, 0f, WORLD_W, WORLD_H);
+        shapeRenderer.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+
+        float pulse = 1f + 0.12f * (float)Math.sin((RESUME_COUNTDOWN_TOTAL - resumeCountdownTimer) * 8f);
+
         batch.begin();
-        batch.draw(selectedBackground, 0, 0, WORLD_W, WORLD_H);
+        float oldScaleX = font.getData().scaleX;
+        float oldScaleY = font.getData().scaleY;
+        font.getData().setScale(5.0f * pulse);
+
+        layout.setText(font, countdownText);
+        float x = (WORLD_W - layout.width) / 2f;
+        float y = (WORLD_H + layout.height) / 2f;
+
+        // Shadow/outline pass
+        font.setColor(0f, 0f, 0f, 0.9f);
+        font.draw(batch, layout, x + 4f, y - 4f);
+        // Main number pass
+        font.setColor(1f, 0.95f, 0.35f, 1f);
+        font.draw(batch, layout, x, y);
+
+        font.getData().setScale(1.35f);
+        font.setColor(0.95f, 0.98f, 1f, 1f);
+        layout.setText(font, "Get ready...");
+        float readyX = (WORLD_W - layout.width) / 2f;
+        float readyY = y - 70f;
+        font.setColor(0f, 0f, 0f, 0.75f);
+        font.draw(batch, layout, readyX + 2f, readyY - 2f);
+        font.setColor(0.95f, 0.98f, 1f, 1f);
+        font.draw(batch, layout, readyX, readyY);
+
+        font.getData().setScale(oldScaleX, oldScaleY);
+        font.setColor(Color.WHITE);
         batch.end();
+    }
+
+    private void drawRecycleFlash() {
+        if (!recycleFlashActive) return;
+
+        float alpha = Math.min(1f, recycleFlashTimer / RECYCLE_FLASH_SECONDS);
+        float t = 1f - alpha;
+        float pulse = 1f + 0.16f * (float)Math.sin(t * 12f);
+
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        shapeRenderer.setProjectionMatrix(batch.getProjectionMatrix());
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(0.04f, 0.20f, 0.06f, 0.28f * alpha);
+        shapeRenderer.rect(0f, 0f, WORLD_W, WORLD_H);
+        shapeRenderer.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+
+        batch.begin();
+        float oldScaleX = font.getData().scaleX;
+        float oldScaleY = font.getData().scaleY;
+
+        font.getData().setScale(4.6f * pulse);
+        layout.setText(font, "RECYCLE!");
+        float x = (WORLD_W - layout.width) / 2f;
+        float y = (WORLD_H + layout.height) / 2f;
+
+        // Glow/shadow then bright main text
+        font.setColor(0f, 0f, 0f, 0.85f * alpha);
+        font.draw(batch, layout, x + 4f, y - 4f);
+        font.setColor(0.55f, 1f, 0.45f, alpha);
+        font.draw(batch, layout, x + 1.5f, y + 1.5f);
+        font.setColor(0.90f, 1f, 0.85f, alpha);
+        font.draw(batch, layout, x, y);
+
+        font.getData().setScale(oldScaleX, oldScaleY);
+        font.setColor(Color.WHITE);
+        batch.end();
+    }
+
+    private void drawBackground(BackgroundChoice bg) {
+        Texture sel;
+        switch (bg) {
+            case SCHOOL_BASKETBALL: sel = basketballBackground; break;
+            case SCHOOL_CANTEEN: sel = canteenBackground; break;
+            case SCHOOL_PARK: sel = parkBackground; break;
+            default: sel = basketballBackground; break;
+        }
+        batch.begin(); batch.draw(sel, 0, 0, WORLD_W, WORLD_H); batch.end();
     }
 
     private void drawHUD() {
         float padding = 10f;
-
-        // Timer box dimensions
-        float timerBoxX = padding;
-        float timerBoxY = pauseBtnY;
-        float timerBoxWidth = 72f;
-        float timerBoxHeight = pauseBtnH;
-
-        // Pickup box dimensions
-        float pickupBoxX = timerBoxX + timerBoxWidth + padding;;
-        float pickupBoxY = pauseBtnY;
-        float pickupBoxHeight = pauseBtnH;
+        float timerBoxX = padding, timerBoxY = pauseBtnY, timerBoxWidth = 72f, timerBoxHeight = pauseBtnH;
         Texture carryIcon = player.getCarriedTrashType() != null ? getTrashIcon(player.getCarriedTrashType()) : null;
         String pickupText = player.getCarriedTrashType() != null ? formatTrashType(player.getCarriedTrashType()) : "Empty";
-
-        float iconH = pauseBtnH - 4f;
-        float iconW = 0f;
-        if (carryIcon != null) {
-            float aspect = (float) carryIcon.getWidth() / carryIcon.getHeight();
-            iconW = iconH * aspect;
-        }
-        font.getData().setScale(1f);
+        float pickupBoxX = timerBoxX + timerBoxWidth + padding, pickupBoxY = pauseBtnY, pickupBoxHeight = pauseBtnH;
+        float iconH = carryIcon != null ? pauseBtnH + 4f : 0f;
+        float iconW = (carryIcon != null) ? iconH * ((float) carryIcon.getWidth() / carryIcon.getHeight()) : 0f;
+        font.getData().setScale(1.2f);
         layout.setText(font, pickupText);
-        float pickupBoxWidth = 6f + iconW + (iconW > 0 ? 4f : 0f) + layout.width + 6f; 
+        float iconTextGap = carryIcon != null ? -24f : 0f;
+        float pickupBoxWidth = iconW + iconTextGap + layout.width + 10f;
 
-        // ── Centered score bar ───────────────────────────────────────────
-        float barHeight = pauseBtnH;
-        float barY = pauseBtnY;
-        float barInnerPad = 14f;
-        float sectionGap = 16f;
-
-        String correctStr = String.valueOf(correctCount);
-        String wrongStr   = String.valueOf(wrongCount);
-        String scoreStr   = score > 0 ? "+" + score : String.valueOf(score);
-
+        float barHeight = pauseBtnH, barY = pauseBtnY, barInnerPad = 14f, sectionGap = 16f;
+        String correctStr = String.valueOf(correctCount), wrongStr = String.valueOf(wrongCount);
+        String scoreStr = score > 0 ? "+" + score : String.valueOf(score);
         font.getData().setScale(1f);
         layout.setText(font, correctStr); float correctTextW = layout.width;
-        layout.setText(font, wrongStr);   float wrongTextW   = layout.width;
+        layout.setText(font, wrongStr); float wrongTextW = layout.width;
         font.getData().setScale(1.3f);
-        layout.setText(font, scoreStr);   float scoreTextW = layout.width;
+        layout.setText(font, scoreStr); float scoreTextW = layout.width;
         font.getData().setScale(1f);
-
-        float leftW  = ICON_SIZE + 4f + correctTextW;
-        float rightW = wrongTextW + 4f + ICON_SIZE;
+        float leftW = ICON_SIZE + 4f + correctTextW, rightW = wrongTextW + 4f + ICON_SIZE;
         float barWidth = barInnerPad + leftW + sectionGap + scoreTextW + sectionGap + rightW + barInnerPad;
         float barX = (WORLD_W - barWidth) / 2f;
 
-        // Draw all white backgrounds in one ShapeRenderer pass
         shapeRenderer.setProjectionMatrix(batch.getProjectionMatrix());
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
         shapeRenderer.setColor(1, 1, 1, 1);
@@ -569,116 +647,76 @@ public SimulationScene(SceneManager sceneManager, SettingsData settings, Simulat
         drawRoundedRect(shapeRenderer, pauseBtnX, pauseBtnY, pauseBtnW, pauseBtnH, pauseBtnH / 2f);
         shapeRenderer.end();
 
-        // Draw all icons and text in one batch pass
         batch.begin();
-
-        // Clock icon
         float clockSize = 28f;
-        float clockY = timerBoxY + (timerBoxHeight - clockSize) / 2f;
-        batch.draw(clockIcon, timerBoxX + 6, clockY, clockSize, clockSize);
-
-        // Timer number
+        batch.draw(clockIcon, timerBoxX + 6, timerBoxY + (timerBoxHeight - clockSize) / 2f, clockSize, clockSize);
+        float oldSX = font.getData().scaleX, oldSY = font.getData().scaleY;
         font.setColor(Color.BLACK);
-        float oldScaleX = font.getData().scaleX;
-        float oldScaleY = font.getData().scaleY;
         font.getData().setScale(1.5f);
-        String timeText = String.valueOf(Math.max(0, (int) timeLeft));
-        layout.setText(font, timeText);
-        float numberAreaX = timerBoxX + clockSize + 10;
-        float numberAreaWidth = timerBoxWidth - (clockSize + 16);
-        float numberX = numberAreaX + (numberAreaWidth - layout.width) / 2f;
-        float numberY = timerBoxY + (timerBoxHeight + layout.height) / 2f - 2;
-        font.draw(batch, layout, numberX, numberY);
-        font.getData().setScale(oldScaleX, oldScaleY);
+        layout.setText(font, String.valueOf(Math.max(0, (int) timeLeft)));
+        float numAreaX = timerBoxX + clockSize + 10, numAreaW = timerBoxWidth - (clockSize + 16);
+        font.draw(batch, layout, numAreaX + (numAreaW - layout.width) / 2f, timerBoxY + (timerBoxHeight + layout.height) / 2f - 2);
+        font.getData().setScale(oldSX, oldSY);
 
-        // Pickup box text
-        font.setColor(Color.BLACK);
-        font.getData().setScale(1f);
+        font.setColor(Color.BLACK); font.getData().setScale(1.2f);
         if (carryIcon != null) {
-            float iconX = pickupBoxX + 6f;
-            float iconY = pickupBoxY + (pickupBoxHeight - iconH) / 2f;
-            batch.draw(carryIcon, iconX, iconY, iconW, iconH);
             layout.setText(font, pickupText);
-            float textX = iconX + iconW + 4f;
-            float textY = pickupBoxY + (pickupBoxHeight + layout.height) / 2f - 2;
+            float startX = pickupBoxX + (pickupBoxHeight / 2f) - (iconW / 2f);
+            float iconX = startX;
+            float iconY = pickupBoxY + (pickupBoxHeight - iconH) / 2f;
+            float textX = iconX + iconW + iconTextGap;
+            float textY = pickupBoxY + (pickupBoxHeight + layout.height) / 2f - 2f;
+
+            batch.draw(carryIcon, iconX, iconY, iconW, iconH);
             font.draw(batch, layout, textX, textY);
         } else {
             layout.setText(font, pickupText);
-            float pickupNumberX = pickupBoxX + (pickupBoxWidth - layout.width) / 2f;
-            float pickupNumberY = pickupBoxY + (pickupBoxHeight + layout.height) / 2f - 2;
-            font.draw(batch, layout, pickupNumberX, pickupNumberY);
+            font.draw(batch, layout, pickupBoxX + (pickupBoxWidth - layout.width) / 2f, pickupBoxY + (pickupBoxHeight + layout.height) / 2f - 2);
         }
-        font.getData().setScale(oldScaleX, oldScaleY);
-        font.setColor(Color.WHITE);
-                
-        // ── Score bar content ────────────────────────────────────────────
+        font.getData().setScale(1f); font.setColor(Color.WHITE);
+
         font.setColor(Color.BLACK);
         float textBaseY = barY + (barHeight + layout.height) / 2f - 2;
-
-        // Left: tick icon + correctCount
-        float tickX = barX + barInnerPad;
-        float tickY = barY + (barHeight - ICON_SIZE) / 2f;
+        float tickX = barX + barInnerPad, tickY = barY + (barHeight - ICON_SIZE) / 2f;
         batch.draw(tickIcon, tickX + TICK_OFFSET_X, tickY + TICK_OFFSET_Y, ICON_SIZE, ICON_SIZE);
         layout.setText(font, correctStr);
         font.draw(batch, layout, tickX + ICON_SIZE + 4f, textBaseY);
 
-        // Center: score (coloured, slightly larger)
-        font.getData().setScale(1.3f);
-        layout.setText(font, scoreStr);
-        if (score > 0)      font.setColor(0f, 0.55f, 0.1f, 1f);
+        font.getData().setScale(1.3f); layout.setText(font, scoreStr);
+        if (score > 0) font.setColor(0f, 0.55f, 0.1f, 1f);
         else if (score < 0) font.setColor(0.85f, 0.1f, 0.1f, 1f);
-        else                font.setColor(Color.BLACK);
-        float scoreCenterY = barY + (barHeight + layout.height) / 2f - 2;
-        font.draw(batch, layout, barX + (barWidth - layout.width) / 2f, scoreCenterY);
+        else font.setColor(Color.BLACK);
+        font.draw(batch, layout, barX + (barWidth - layout.width) / 2f, barY + (barHeight + layout.height) / 2f - 2);
         font.getData().setScale(1f);
 
-        // Right: wrongCount + cross icon
-        font.setColor(Color.BLACK);
-        layout.setText(font, wrongStr);
-        float crossX = barX + barWidth - barInnerPad - ICON_SIZE;
-        float crossY = barY + (barHeight - ICON_SIZE) / 2f;
+        font.setColor(Color.BLACK); layout.setText(font, wrongStr);
+        float crossX = barX + barWidth - barInnerPad - ICON_SIZE, crossY = barY + (barHeight - ICON_SIZE) / 2f;
         font.draw(batch, layout, crossX - 4f - layout.width, textBaseY);
         batch.draw(crossIcon, crossX + CROSS_OFFSET_X, crossY + CROSS_OFFSET_Y, ICON_SIZE, ICON_SIZE);
 
         font.setColor(Color.WHITE);
-
-        // Pause icon
         batch.draw(pauseButtonIcon, pauseBtnX + 2f, pauseBtnY + 2f, pauseBtnW - 4f, pauseBtnH - 4f);
-
         batch.end();
     }
 
-    // Helper to draw a filled rounded rectangle using ShapeRenderer
-    private void drawRoundedRect(com.badlogic.gdx.graphics.glutils.ShapeRenderer sr, float x, float y, float w, float h, float r) {
-        // Center rectangle
-        sr.rect(x + r, y, w - 2*r, h);
-        // Side rectangles
-        sr.rect(x, y + r, r, h - 2*r);
-        sr.rect(x + w - r, y + r, r, h - 2*r);
-        // Four corners (quarter circles)
-        int segments = 18;
-        sr.arc(x + r, y + r, r, 180, 90, segments); // bottom left
-        sr.arc(x + w - r, y + r, r, 270, 90, segments); // bottom right
-        sr.arc(x + w - r, y + h - r, r, 0, 90, segments); // top right
-        sr.arc(x + r, y + h - r, r, 90, 90, segments); // top left
-    }
-    
-    public int getFinalCollisionCount() {
-        return collisionManager.getPlayerBotCollisionCount();
+    private void drawRoundedRect(ShapeRenderer sr, float x, float y, float w, float h, float r) {
+        sr.rect(x + r, y, w - 2*r, h); sr.rect(x, y + r, r, h - 2*r); sr.rect(x + w - r, y + r, r, h - 2*r);
+        int s = 18;
+        sr.arc(x + r, y + r, r, 180, 90, s); sr.arc(x + w - r, y + r, r, 270, 90, s);
+        sr.arc(x + w - r, y + h - r, r, 0, 90, s); sr.arc(x + r, y + h - r, r, 90, 90, s);
     }
 
-    @Override public void resize(int width, int height) {
-        WORLD_W = width;
-        WORLD_H = height;
-        pauseBtnX = WORLD_W - pauseBtnW - 18f;
-        pauseBtnY = WORLD_H - pauseBtnH - 16f;
+    public int getFinalCollisionCount() { return collisionManager.getPlayerBotCollisionCount(); }
+
+    @Override public void resize(int w, int h) {
+        WORLD_W = w; WORLD_H = h;
+        pauseBtnX = WORLD_W - pauseBtnW - 18f; pauseBtnY = WORLD_H - pauseBtnH - 16f;
     }
 
-    @Override
-    public void hide() { }
+    @Override public void hide() {}
 
-    @Override
-    public void dispose() {
+    @Override public void dispose() {
+        if (eventManager != null) eventManager.clearListeners();
         if (batch != null) batch.dispose();
         if (shapeRenderer != null) shapeRenderer.dispose();
         if (font != null) font.dispose();
@@ -694,12 +732,10 @@ public SimulationScene(SceneManager sceneManager, SettingsData settings, Simulat
         if (tickIcon != null) tickIcon.dispose();
         if (crossIcon != null) crossIcon.dispose();
         if (monsterWarningIcon != null) monsterWarningIcon.dispose();
-        FUN_FACT_POPUP.dispose();
+        funFact.dispose();
         if (player != null) player.disposeTextures();
-        for (Bot bot : bots) {
-            bot.disposeTextures();
-        }
-        Obstacle.disposeAllTextures();
+        for (Bot bot : bots) bot.disposeTextures();
+        Bin.disposeAllTextures();
         Trash.disposeAllTextures();
     }
 }

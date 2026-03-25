@@ -34,8 +34,13 @@ public class HowToPlayScene extends Scene {
     private Texture plasticItemTexture;
     private Texture electronicItemTexture;
     private Texture trashItemTexture;
+    private Texture controlsIconTexture;
+    private Texture monsterIconTexture;
+    private Texture modeIconTexture;
+    private Texture tipsIconTexture;
     private Texture helpPanelTexture;
     private Texture hintPanelTexture;
+    private Label pageHintLabel;
 
     public HowToPlayScene(SceneManager sceneManager) {
         this.sceneManager = sceneManager;
@@ -73,6 +78,10 @@ public class HowToPlayScene extends Scene {
         plasticItemTexture = new Texture(Gdx.files.internal("trash_recyclable/plastic.png"));
         electronicItemTexture = new Texture(Gdx.files.internal("trash_recyclable/electronic.png"));
         trashItemTexture = new Texture(Gdx.files.internal("trash_recyclable/trashbag.png"));
+        controlsIconTexture = new Texture(Gdx.files.internal("backgrounds/pause.png"));
+        monsterIconTexture = new Texture(Gdx.files.internal("backgrounds/monster_warning.png"));
+        modeIconTexture = new Texture(Gdx.files.internal("backgrounds/clock.png"));
+        tipsIconTexture = new Texture(Gdx.files.internal("backgrounds/tick.png"));
 
         TextureRegionDrawable prevDrawable = new TextureRegionDrawable(new TextureRegion(prevIconTexture));
         TextureRegionDrawable nextDrawable = new TextureRegionDrawable(new TextureRegion(nextIconTexture));
@@ -85,15 +94,15 @@ public class HowToPlayScene extends Scene {
         nextStyle.imageUp = nextDrawable;
         nextButton = new ImageButton(nextStyle);
 
-        Label pageHint = new Label("Click the trash can to flip pages", skin);
-        pageHint.setFontScale(1.12f);
-        pageHint.setAlignment(Align.center);
-        pageHint.setColor(1f, 1f, 1f, 1f);
+        pageHintLabel = new Label("", skin);
+        pageHintLabel.setFontScale(1.12f);
+        pageHintLabel.setAlignment(Align.center);
+        pageHintLabel.setColor(1f, 1f, 1f, 1f);
 
         Table hintCard = new Table();
         hintCard.setBackground(createHintPanelDrawable());
         hintCard.pad(8f, 18f, 8f, 18f);
-        hintCard.add(pageHint).center();
+        hintCard.add(pageHintLabel).center();
 
         root.add(title).padBottom(24f).row();
         root.add(contentCard).expand().top().row();
@@ -140,7 +149,7 @@ public class HowToPlayScene extends Scene {
             }
             if (nextHandled) return false;
             nextHandled = true;
-            if (currentPage < 1) {
+            if (currentPage < 3) {
                 currentPage++;
                 updatePage();
             }
@@ -204,6 +213,20 @@ public class HowToPlayScene extends Scene {
         return row;
     }
 
+    private Table createSectionHeaderRow(Texture iconTexture, String title, float iconW, float iconH) {
+        Table row = new Table();
+        row.defaults().left().center();
+
+        Image icon = new Image(new TextureRegionDrawable(new TextureRegion(iconTexture)));
+        Label label = new Label(title, skin);
+        styleSubHeaderLabel(label);
+
+        row.add(icon).width(iconW).height(iconH).padRight(10f);
+        row.add(label);
+
+        return row;
+    }
+
     private void updatePage() {
         content.clearChildren();
 
@@ -228,10 +251,6 @@ public class HowToPlayScene extends Scene {
             styleBodyLabel(positiveScore);
             positiveScore.setColor(0.58f, 1f, 0.6f, 1f);
 
-            Label OtherpositiveScore = new Label("- Recyclable but Wrong bin deposit: +1 point.", skin);
-            styleBodyLabel(OtherpositiveScore);
-            OtherpositiveScore.setColor(0.58f, 1f, 0.6f, 1f);
-
             Label negativeScore = new Label("- Wrong bin deposit: -1 point.", skin);
             styleBodyLabel(negativeScore);
             negativeScore.setColor(1f, 0.55f, 0.55f, 1f);
@@ -244,7 +263,6 @@ public class HowToPlayScene extends Scene {
             content.add(missionText).width(CONTENT_WIDTH).left().padBottom(12f).row();
             content.add(scoringHeader).width(CONTENT_WIDTH).left().padBottom(6f).row();
             content.add(positiveScore).width(CONTENT_WIDTH).left().padBottom(4f).row();
-            content.add(OtherpositiveScore).width(CONTENT_WIDTH).left().padBottom(4f).row();
             content.add(negativeScore).width(CONTENT_WIDTH).left().padBottom(4f).row();
             content.add(collisionPenalty).width(CONTENT_WIDTH).left();
             content.row();
@@ -260,17 +278,93 @@ public class HowToPlayScene extends Scene {
             binTable.defaults().pad(0.5f, 0f, 0.5f, 0f).left().top();
 
             binTable.add(createBinGuideRow(paperItemTexture, paperBinTexture, "Blue Bin - Paper", 0.5f, 0.7f, 1f)).left().row();
-            binTable.add(createBinGuideRow(plasticItemTexture, plasticBinTexture, "Yellow Bin - Plastic", 0.6f, 1f, 0.5f)).left().row();
+            binTable.add(createBinGuideRow(plasticItemTexture, plasticBinTexture, "Green Bin - Plastic", 0.6f, 1f, 0.5f)).left().row();
             binTable.add(createBinGuideRow(electronicItemTexture, electronicBinTexture, "Red Bin - E-Waste", 1f, 0.5f, 0.5f)).left().row();
             binTable.add(createBinGuideRow(trashItemTexture, trashBinTexture, "Black Bin - General Trash", 0.8f, 0.8f, 0.8f)).left().row();
 
             content.add(header).width(CONTENT_WIDTH).center().padBottom(8f).row();
             content.add(intro).width(CONTENT_WIDTH).left().padBottom(10f).row();
             content.add(binTable).left();
+        } else if (currentPage == 2) {
+            Label header = new Label("Controls & Options", skin);
+            styleHeaderLabel(header);
+            header.setAlignment(Align.center);
+
+            Table controlsHeader = createSectionHeaderRow(controlsIconTexture, "Controls:", 30f, 30f);
+            Label controlsText = new Label(
+                "- Move: WASD or Arrow Keys (based on your selected control scheme).\n" +
+                "- Pause: Press ESC anytime during the game.\n" +
+                "- In popups/menus, click buttons with your mouse.",
+                skin
+            );
+            styleBodyLabel(controlsText);
+            controlsText.setColor(0.88f, 0.95f, 1f, 1f);
+
+            Table monsterHeader = createSectionHeaderRow(monsterIconTexture, "Monster Alert:", 42f, 30f);
+            Label monsterText = new Label(
+                "- The monster is the bot enemy that patrols the map.\n" +
+                "- If it collides with you, your carried item drops and you lose time.\n" +
+                "- More difficult modes spawn more monsters, so path carefully.",
+                skin
+            );
+            styleBodyLabel(monsterText);
+            monsterText.setColor(1f, 0.76f, 0.76f, 1f);
+
+            Table optionsHeader = createSectionHeaderRow(plasticBinTexture, "Game Options:", 30f, 34f);
+            Label optionsText = new Label(
+                "- Settings: Adjust volume and brightness.\n" +
+                "- Control Settings: Switch between WASD and Arrow controls.\n" +
+                "- Leaderboard: Save your score after each round and view top recyclers.",
+                skin
+            );
+            styleBodyLabel(optionsText);
+            optionsText.setColor(0.90f, 1f, 0.86f, 1f);
+
+            content.add(header).width(CONTENT_WIDTH).center().padBottom(12f).row();
+            content.add(controlsHeader).width(CONTENT_WIDTH).left().padBottom(4f).row();
+            content.add(controlsText).width(CONTENT_WIDTH).left().padBottom(10f).row();
+            content.add(monsterHeader).width(CONTENT_WIDTH).left().padBottom(4f).row();
+            content.add(monsterText).width(CONTENT_WIDTH).left().padBottom(10f).row();
+            content.add(optionsHeader).width(CONTENT_WIDTH).left().padBottom(4f).row();
+            content.add(optionsText).width(CONTENT_WIDTH).left();
+        } else if (currentPage == 3) {
+            Label header = new Label("Modes & Strategy", skin);
+            styleHeaderLabel(header);
+            header.setAlignment(Align.center);
+
+            Table modesHeader = createSectionHeaderRow(modeIconTexture, "Difficulty / Game Modes:", 30f, 30f);
+            Label modesText = new Label(
+                "- School Basketball (Easy): 0 monsters, 3 items per type.\n" +
+                "- School Canteen (Medium): 1 monster, 4 items per type.\n" +
+                "- School Park (Hard): 2 monsters, 5 items per type.\n" +
+                "- Time mode: 5 sec, 1 min, 3 min, or 5 min.",
+                skin
+            );
+            styleBodyLabel(modesText);
+            modesText.setColor(1f, 0.92f, 0.70f, 1f);
+
+            Table tipsHeader = createSectionHeaderRow(tipsIconTexture, "Quick Strategy Tips:", 30f, 30f);
+            Label tipsText = new Label(
+                "- Prioritize nearby items first to save time.\n" +
+                "- Avoid the bot when carrying an item so you do not drop it.\n" +
+                "- If unsure, check the bin colors in this guide before depositing.",
+                skin
+            );
+            styleBodyLabel(tipsText);
+            tipsText.setColor(0.92f, 0.95f, 1f, 1f);
+
+            content.add(header).width(CONTENT_WIDTH).center().padBottom(12f).row();
+            content.add(modesHeader).width(CONTENT_WIDTH).left().padBottom(4f).row();
+            content.add(modesText).width(CONTENT_WIDTH).left().padBottom(10f).row();
+            content.add(tipsHeader).width(CONTENT_WIDTH).left().padBottom(4f).row();
+            content.add(tipsText).width(CONTENT_WIDTH).left();
         }
 
         prevButton.setDisabled(currentPage == 0);
-        nextButton.setDisabled(currentPage == 1);
+        nextButton.setDisabled(currentPage == 3);
+        if (pageHintLabel != null) {
+            pageHintLabel.setText("Page " + (currentPage + 1) + " / 4   |   Click trash cans to flip");
+        }
     }
 
     @Override
@@ -315,6 +409,22 @@ public class HowToPlayScene extends Scene {
         if (trashItemTexture != null) {
             trashItemTexture.dispose();
             trashItemTexture = null;
+        }
+        if (controlsIconTexture != null) {
+            controlsIconTexture.dispose();
+            controlsIconTexture = null;
+        }
+        if (monsterIconTexture != null) {
+            monsterIconTexture.dispose();
+            monsterIconTexture = null;
+        }
+        if (modeIconTexture != null) {
+            modeIconTexture.dispose();
+            modeIconTexture = null;
+        }
+        if (tipsIconTexture != null) {
+            tipsIconTexture.dispose();
+            tipsIconTexture = null;
         }
         if (helpPanelTexture != null) {
             helpPanelTexture.dispose();

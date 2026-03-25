@@ -1,21 +1,20 @@
 package INF1009_P3_02.Collision;
 
-
-import INF1009_P3_02.Entity.Bot;
-import INF1009_P3_02.Entity.CarryState;
-import INF1009_P3_02.Entity.Entity;
-import INF1009_P3_02.Entity.EntityManager;
-import INF1009_P3_02.Entity.Player;
-import INF1009_P3_02.Entity.TrashType;
+import INF1009_P3_02.Entity.*;
 import INF1009_P3_02.InputOutput.Speaker;
-
+import INF1009_P3_02.Observer.GameEventManager;
+import INF1009_P3_02.Observer.StateChangeReason;
 
 public class PlayerBotCollision implements CollisionHandler {
-    private final EntityManager entityManager;
 
-    public PlayerBotCollision(EntityManager entityManager) {
+    private final EntityManager entityManager;
+    private final GameEventManager eventManager;
+
+    public PlayerBotCollision(EntityManager entityManager, GameEventManager eventManager) {
         this.entityManager = entityManager;
+        this.eventManager = eventManager;
     }
+
     @Override
     public void handle(Entity a, Entity b, CollisionContext ctx, Speaker speaker) {
         if (!(a instanceof Player) || !(b instanceof Bot)) return;
@@ -29,10 +28,16 @@ public class PlayerBotCollision implements CollisionHandler {
 
         if (!overlapping) return;
 
-        // Player drops carried trash/items
-        player.setCarryState(CarryState.NONE);
-        player.clearCarriedTrash();
-        if (carriedType != null) {
+        // If the player was carrying trash, drop it and notify carry state observers
+        if (player.getCarryState() != CarryState.NONE && carriedType != null) {
+            player.setCarryState(CarryState.NONE);
+            player.clearCarriedTrash();
+
+            // Notify observers: carry state changed (DROPPED)
+            if (eventManager != null) {
+                eventManager.notifyCarryStateChanged(CarryState.NONE, carriedType, StateChangeReason.DROPPED, 0);
+            }
+
             entityManager.respawnTrash(carriedType);
         }
 
@@ -56,8 +61,12 @@ public class PlayerBotCollision implements CollisionHandler {
         // Block bot: revert bot so it bounces like hitting an obstacle
         CollisionUtil.revert(bot, ctx.bOldX, ctx.bOldY);
 
-        // Mark reaction so movement manager flips direction
         ctx.botCollidedWithPlayer = true;
-        speaker.playCollisionSound(); //Play collision sound
+
+        // Notify observers: player collision (HIT_BOT)
+        // Audio, logging, movement all respond through observer
+        if (eventManager != null) {
+            eventManager.notifyPlayerCollision(StateChangeReason.HIT_BOT);
+        }
     }
 }

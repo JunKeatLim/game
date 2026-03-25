@@ -2,37 +2,35 @@ package INF1009_P3_02.Collision;
 
 import INF1009_P3_02.Entity.Bot;
 import INF1009_P3_02.Entity.EntityManager;
-import INF1009_P3_02.Entity.Obstacle;
+import INF1009_P3_02.Entity.Bin;
 import INF1009_P3_02.Entity.Player;
 import INF1009_P3_02.InputOutput.Speaker;
-import INF1009_P3_02.Logging.GameEngineLogger;
+import INF1009_P3_02.Observer.GameEventManager;
+
 import java.util.List;
 import java.util.Map;
 
 public class CollisionManager {
-    // Strategy objects responsible for handling specific collision types.
-    private final CollisionHandler playerObstacle = new PlayerObstacleCollision();
+    private final CollisionHandler playerObstacle;
     private final CollisionHandler botObstacle    = new BotObstacleCollision();
     private final CollisionHandler playerBot;
-
-    // Tracks the number of valid player–bot collision events.
-    private final CollisionCounter collisionCounter = new CollisionCounter();
-    // Handles sound effects when collisions occur.
-    private final Speaker speaker;
-    private final GameEngineLogger logger;
     private final CollisionHandler playerBinDeposit;
 
-    public CollisionManager(Speaker speaker, EntityManager entityManager, GameEngineLogger logger) {
+    private final CollisionCounter collisionCounter = new CollisionCounter();
+    private final Speaker speaker;
+
+    public CollisionManager(Speaker speaker, EntityManager entityManager,
+                            GameEventManager eventManager) {
         this.speaker = speaker;
-        this.logger = logger;
-        this.playerBinDeposit = new PlayerBinDepositCollision(entityManager);
-        this.playerBot = new PlayerBotCollision(entityManager);
+        this.playerObstacle   = new PlayerObstacleCollision(eventManager);
+        this.playerBot        = new PlayerBotCollision(entityManager, eventManager);
+        this.playerBinDeposit = new PlayerBinDepositCollision(entityManager, eventManager);
     }
 
     public CollisionContext resolve(
         Player player,
         List<Bot> bots,
-        List<Obstacle> obstacles,
+        List<Bin> obstacles,
         float pOldX, float pOldY,
         Map<Bot, float[]> botOldPositions,
         float dt
@@ -40,7 +38,7 @@ public class CollisionManager {
         CollisionContext ctx = new CollisionContext(pOldX, pOldY, 0f, 0f, dt);
 
         // Player vs obstacles
-        for (Obstacle o : obstacles) {
+        for (Bin o : obstacles) {
             playerBinDeposit.handle(player, o, ctx, speaker);
             playerObstacle.handle(player, o, ctx, speaker);
         }
@@ -53,7 +51,7 @@ public class CollisionManager {
                 float bOldY = oldPos != null ? oldPos[1] : bot.getY();
 
                 CollisionContext botCtx = new CollisionContext(pOldX, pOldY, bOldX, bOldY, dt);
-                for (Obstacle o : obstacles) {
+                for (Bin o : obstacles) {
                     botObstacle.handle(bot, o, botCtx, speaker);
                 }
                 playerBot.handle(player, bot, botCtx, speaker);
@@ -64,11 +62,9 @@ public class CollisionManager {
             }
         }
 
-        // Count score
         ctx.updateBinOverlapState();
-        // Count collision
         collisionCounter.update(ctx, dt);
-        
+
         return ctx;
     }
 

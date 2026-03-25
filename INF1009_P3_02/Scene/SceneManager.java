@@ -71,6 +71,9 @@ public class SceneManager {
 
         if (currentScene != null && currentScene != newScene) {
             currentScene.hide();
+            if (inputOutputManager != null) {
+                inputOutputManager.playUiWhoosh();
+            }
 
             // prevent stage leaks
             if (currentScene.stage != null) {
@@ -163,6 +166,7 @@ public class SceneManager {
         logger.info("Game resumed");
         if (simulationScene != null) {
             switchToScene(simulationScene);
+            simulationScene.startResumeCountdown(3f);
             playGameMusic();
         } else {
             switchToScene(mainMenuScene);

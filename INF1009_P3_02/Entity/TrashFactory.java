@@ -16,7 +16,7 @@ public class TrashFactory {
 
     public Trash createTrash(TrashType type) {
         float x = MathUtils.random(0f, worldW - boundsW);
-        float y = MathUtils.random(0f, worldH - boundsH);
+        float y = MathUtils.random(worldH * 0.25f, worldH - boundsH);
 
         switch (type) {
             case PAPER:

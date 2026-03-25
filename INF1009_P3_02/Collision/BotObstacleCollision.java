@@ -2,17 +2,17 @@ package INF1009_P3_02.Collision;
 
 import INF1009_P3_02.Entity.Bot;
 import INF1009_P3_02.Entity.Entity;
-import INF1009_P3_02.Entity.Obstacle;
+import INF1009_P3_02.Entity.Bin;
 import INF1009_P3_02.InputOutput.Speaker;
 
 public class BotObstacleCollision implements CollisionHandler {
 
     @Override
     public void handle(Entity a, Entity b, CollisionContext ctx, Speaker speaker) {
-        if (!(a instanceof Bot) || !(b instanceof Obstacle)) return;
+        if (!(a instanceof Bot) || !(b instanceof Bin)) return;
 
         Bot bot = (Bot) a;
-        Obstacle obstacle = (Obstacle) b;
+        Bin obstacle = (Bin) b;
 
         if (!CollisionUtil.intersects(bot, obstacle)) return; //check if bot and obstacle overlap each other
 

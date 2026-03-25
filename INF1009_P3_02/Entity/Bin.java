@@ -8,17 +8,17 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import java.util.EnumMap;
 import java.util.Map;
 
-public abstract class Obstacle extends Entity {
+public abstract class Bin extends Entity {
     private final float boundsW, boundsH;
     private final float drawH;              // visual size (height)
-    private final ObstacleType type;
+    private final BinType type;
 
-    private static final Map<ObstacleType, Texture> TEX = new EnumMap<>(ObstacleType.class);
+    private static final Map<BinType, Texture> TEX = new EnumMap<>(BinType.class);
 
-    public Obstacle(float x, float y,
+    public Bin(float x, float y,
                     float boundsW, float boundsH,
                     float drawH,
-                    ObstacleType type) {
+                    BinType type) {
         super(x, y, 0);
         this.boundsW = boundsW; 
         this.boundsH = boundsH;
@@ -38,7 +38,7 @@ public abstract class Obstacle extends Entity {
         TEX.put(type, t);
     }
 
-    public ObstacleType getType() { return type; }
+    public BinType getType() { return type; }
 
     @Override
     public void update(float dt) {

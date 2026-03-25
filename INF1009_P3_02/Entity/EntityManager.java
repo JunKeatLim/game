@@ -11,13 +11,12 @@ public class EntityManager {
     private final List<Bot> bots = new ArrayList<>();
     private float worldW, worldH;
 
-    private final List<Obstacle> obstacles = new ArrayList<>();
+    private final List<Bin> bins = new ArrayList<>();
     private final List<Trash> trashItems = new ArrayList<>();
     private final List<Entity> entities = new ArrayList<>();
 
     // Single factories instead of per-type registries
-    private TrashFactory trashFactory;
-    private ObstacleFactory obstacleFactory;
+    private EntityFactory entityFactory;
     private GameEngineLogger logger;
 
     private static final int MAX_SPAWN_ATTEMPTS = 300;
@@ -34,7 +33,7 @@ public class EntityManager {
             bots.add(botEntity);
             bot = bots.isEmpty() ? null : bots.get(0);
         }
-        if (e instanceof Obstacle) obstacles.add((Obstacle) e);
+        if (e instanceof Bin) bins.add((Bin) e);
         if (e instanceof Trash) trashItems.add((Trash) e);
     }
 
@@ -45,7 +44,7 @@ public class EntityManager {
             bots.remove(e);
             bot = bots.isEmpty() ? null : bots.get(0);
         }
-        if (e instanceof Obstacle) obstacles.remove(e);
+        if (e instanceof Bin) bins.remove(e);
         if (e instanceof Trash) trashItems.remove(e);
     }
 
@@ -71,8 +70,8 @@ public class EntityManager {
         return Collections.unmodifiableList(bots);
     }
 
-    public List<Obstacle> getObstacles() {
-        return Collections.unmodifiableList(obstacles);
+    public List<Bin> getBins() {
+        return Collections.unmodifiableList(bins);
     }
 
     public void updatePlayerPosition(float newX, float newY) {
@@ -104,34 +103,43 @@ public class EntityManager {
     }
 
     // ── Factory setters ───────────────────────────────────────────────
-    public void setTrashFactory(TrashFactory factory) {
-        this.trashFactory = factory;
+        public void setEntityFactory(EntityFactory factory) {
+        this.entityFactory = factory;
     }
 
-    public void setObstacleFactory(ObstacleFactory factory) {
-        this.obstacleFactory = factory;
+    // ── Private helper factory check ─────────────────────────────────
+    private void ensureFactorySet() {
+        if (entityFactory == null) {
+            throw new IllegalStateException("EntityFactory has not been set on EntityManager");
+        }
     }
 
     // ── Trash creation via single factory ─────────────────────────────
     public Trash createTrash(TrashType type) {
-        if (trashFactory == null) {
-            throw new IllegalStateException("TrashFactory has not been set on EntityManager");
-        }
-        return trashFactory.createTrash(type);
+        ensureFactorySet();
+        return entityFactory.createTrash(type);
     }
 
     // ── Obstacle creation via factory ─────────────────────────────────
-    public Obstacle createObstacle(ObstacleType type) {
-        if (obstacleFactory == null) {
-            throw new IllegalStateException("ObstacleFactory has not been set on EntityManager");
-        }
-        return obstacleFactory.createObstacle(type);
+    public Bin createBin(BinType type) {
+         ensureFactorySet();
+        return entityFactory.createBin(type);
+    }
+
+    public Bin createBin(BinType type, float x, float y) {
+        ensureFactorySet();
+        return entityFactory.createBin(type, x, y);
     }
 
     // ── Spawning ──────────────────────────────────────────────────────
     public void spawnInitialTrash() {
+        spawnInitialTrash(3);
+    }
+
+    public void spawnInitialTrash(int trashPerType) {
+        int safeTrashPerType = Math.max(1, trashPerType);
         for (TrashType type : TrashType.values()) {
-            for (int i = 0; i < 3; i++) {
+            for (int i = 0; i < safeTrashPerType; i++) {
                 Trash t = spawnNonOverlapping(type);
                 if (t != null) addEntity(t);
             }
@@ -147,10 +155,28 @@ public class EntityManager {
      * Spawns obstacles using the ObstacleFactory, ensuring they don't
      * overlap with the player or bot.
      */
-    public void spawnObstacles(ObstacleType[] types) {
-        for (ObstacleType type : types) {
-            Obstacle o = spawnNonOverlappingObstacle(type);
-            if (o != null) addEntity(o);
+
+    public void spawnBinBottomRow(BinType[] types) {
+        ensureFactorySet();
+        if (types == null || types.length == 0) return;
+        BinFactory binFactory = entityFactory.getBinFactory();
+        float boundsW = binFactory.getBoundsW();
+        float boundsH = binFactory.getBoundsH();
+        float drawH = binFactory.getDrawH();
+        float gap = 44f;
+        float totalWidth = types.length * boundsW + (types.length - 1) * gap;
+        float startX = Math.max(0f, (worldW - totalWidth) / 2f);
+        float bottomPadding = 12f;
+        float y = Math.max(0f, bottomPadding + (drawH - boundsH) / 2f);
+
+        for (int i = 0; i < types.length; i++) {
+            float x = startX + i * (boundsW + gap);
+            Bin bin = createBin(types[i], x, y);
+            if (noOverlapWithEntities(bin)) {
+                addEntity(bin);
+            } else {
+                logWarning("Failed to place bin " + types[i] + " in bottom row.");
+            }
         }
     }
 
@@ -166,14 +192,14 @@ public class EntityManager {
         return null;
     }
 
-    private Obstacle spawnNonOverlappingObstacle(ObstacleType type) {
+    private Bin spawnNonOverlappingBin(BinType type) {
         for (int attempt = 0; attempt < MAX_SPAWN_ATTEMPTS; attempt++) {
-            Obstacle candidate = createObstacle(type);
+            Bin candidate = createBin(type);
             if (noOverlapWithEntities(candidate)) {
                 return candidate;
             }
         }
-        logWarning("Failed to spawn obstacle " + type + " after " + MAX_SPAWN_ATTEMPTS + " attempts.");
+        logWarning("Failed to spawn bin " + type + " after " + MAX_SPAWN_ATTEMPTS + " attempts.");
         return null;
     }
 
@@ -182,7 +208,7 @@ public class EntityManager {
         if (player != null && candidate.getBounds().overlaps(player.getBounds())) return false;
         for (Bot b : bots)
             if (candidate.getBounds().overlaps(b.getBounds())) return false;
-        for (Obstacle o : obstacles)
+        for (Bin o : bins)
             if (candidate.getBounds().overlaps(o.getBounds())) return false;
         return true;
     }
